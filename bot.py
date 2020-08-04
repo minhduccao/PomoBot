@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from discord.ext import commands
 import configparser
 import asyncio
+from enum import Enum
 
 from timer import Timer
 from timer import TimerStatus
@@ -14,8 +15,7 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')              # Grabs Discord bot token from .env file
 bot = commands.Bot(command_prefix='*')
 timer = Timer()
-workTimeLeft = 0
-breakTimeLeft = 0
+pingList = []
 
 
 # ------------ Overall Work List ---------
@@ -26,6 +26,13 @@ breakTimeLeft = 0
 # TODO: Add docstrings
 # TODO: Create empty .env file before finalizing
 # TODO: Remove all DEBUG statements and check imports before finalizing
+# TODO: Allow bot to ping users once timer ends
+
+# TODO: Update Enum with more colors
+class MsgColors(Enum):
+    AQUA = 0x33c6bb
+    YELLOW = 0xFFD966
+    RED = 0xEA3546
 
 
 @bot.event
@@ -39,23 +46,49 @@ async def start_timer(ctx):
     # TODO: Add break functionality
     # TODO: Let *start also resume the timer if paused
     # TODO: Add proper msgs for error handling + correct
-    if DEBUG:
-        em = discord.Embed(title='Starting Timer', description='Starting timer', color=0x00FF00)
-        msg = await ctx.send('Starting timer')
-        await msg.edit(embed=em)
-        print('Command: *start')
-
     if timer.get_status() == TimerStatus.STOPPED:
-        work_time = int(config['CURRENT_SETTINGS']['work_time']) * 60
-        timer.start(work_time)
+        work_mins = config['CURRENT_SETTINGS']['work_time']                 # Grabs work duration from user settings
+        work_secs = '00'
+        desc = f'Time Remaining: {work_mins}:{work_secs}'                   # Formats message to be sent
 
+        em = discord.Embed(title='Starting Timer', description=desc, color=MsgColors.AQUA.value)
+        await ctx.send(embed=em)
+        if DEBUG:
+            print('Command: *start (from stopped timer)')
+
+        work_time = int(work_mins) * 60                                     # Multiplied by 60 to get seconds
+        timer.start(work_time)
+        while timer.get_status() == TimerStatus.RUNNING:
+            await asyncio.sleep(1)                                          # Sleep for 1 sec before timer counts down
+            timer.tick()
+        if timer.get_status() == TimerStatus.STOPPED:                       # Ping users when timer stops
+            for user in pingList:
+                await ctx.send(f'Pinging {user}')
+            pingList.clear()
+
+    elif timer.get_status() == TimerStatus.PAUSED:
+        work_secs = timer.get_time() % 60
+        work_mins = int((timer.get_time() - work_secs) / 60)
+        if work_secs < 10:                                                  # Formats seconds if <10 seconds left
+            work_secs = '0' + str(work_secs)
+
+        desc = f'Time Remaining: {work_mins}:{work_secs}'
+        em = discord.Embed(title='Resuming Timer', description=desc, color=MsgColors.AQUA.value)
+        await ctx.send(embed=em)
+        if DEBUG:
+            print('Command: *start (from paused timer)')
+
+        timer.resume()
         while timer.get_status() == TimerStatus.RUNNING:
             await asyncio.sleep(1)
             timer.tick()
+        if timer.get_status() == TimerStatus.STOPPED:                       # Ping users when timer stops
+            for user in pingList:
+                await ctx.send(f'Pinging {user}')
+            pingList.clear()
     else:
-        em = discord.Embed(title='Warning', description='Timer is already running.', color=0x00FF00)
-        msg = await ctx.send('Timer is already running')
-        await msg.edit(embed=em)
+        em = discord.Embed(title='Warning', description='Timer is already running.', color=MsgColors.YELLOW.value)
+        await ctx.send(embed=em)
         if DEBUG:
             print('Timer already exists.')
 
@@ -72,24 +105,56 @@ async def set_timer_amt(ctx, work_time: int, break_time: int):
 
 @bot.command(name='pause', help='Pauses the timer')
 async def pause_timer(ctx):
-    # TODO: Handle if timer is already paused or stopped already
     if DEBUG:
-        await ctx.send('Paused timer')
         print('Command: *pause')
     if not timer.pause():
-        # Handle error here
-        pass
+        em = discord.Embed(title='Warning', description='Timer has already been paused or stopped.', color=MsgColors.YELLOW.value)
+    else:
+        em = discord.Embed(title='Paused Timer', description='Timer has been paused.', color=MsgColors.AQUA.value)
+    await ctx.send(embed=em)
 
 
 @bot.command(name='stop', help='Stops the timer')
 async def stop_timer(ctx):
-    # TODO: Handle if timer is already stopped or hasn't started yet
     if DEBUG:
-        await ctx.send('Stopped timer')
-        print(f'Command: *stop')
+        print('Command: *stop')
     if not timer.stop():
-        # Handle error here
-        pass
+        em = discord.Embed(title='Warning', description='Timer has already been stopped or paused.', color=MsgColors.YELLOW.value)
+    else:
+        em = discord.Embed(title='Stopped Timer', description='Timer has been stopped.', color=MsgColors.AQUA.value)
+    await ctx.send(embed=em)
+
+
+@bot.command(name='time', help='Displays the current timer status')
+async def current_time(ctx):
+    # TODO: Add in formatting for remaining time
+    if DEBUG:
+        print('Command: *time')
+
+    # seconds = timer.get_time()
+    # if seconds <= 0:
+    #     seconds = '0'
+    #     minutes = '00'
+    # else:
+    #     minutes = seconds
+    #     seconds %= 60
+    #     minutes
+
+    status = timer.get_status()
+    if status == TimerStatus.STOPPED:
+        em = discord.Embed(title='Timer Stopped', description='Time Remaining: 0:00', color=MsgColors.RED.value)
+    elif status == TimerStatus.RUNNING:
+        em = discord.Embed(title='Timer Running', description=f'Time Remaining: ', color=MsgColors.AQUA.value)
+    else:
+        em = discord.Embed(title='Time Paused', description='Time Remaining: ', color=MsgColors.YELLOW.value)
+    await ctx.send(embed=em)
+
+
+@bot.command(name='notify', help='Signs up the user to be pinged when the timer ends')
+async def notify_user(ctx):
+    if DEBUG:
+        print('Command: *notify')
+    pingList.append(ctx.message.author.mention)
 
 
 @bot.command(name='reset', help='Reset timer settings to default values.')
@@ -104,9 +169,8 @@ async def reset_settings(ctx):
 # TODO: Remove command later
 @bot.command(name='t', help='Temporary for testing commands')
 async def t(ctx):
-    em = discord.Embed(title='Error', description='Desc', color=0x00FF00)
-    msg = await ctx.send()
-    await msg.edit(embed=em)
+    x = ctx.message.author.mention
+    await ctx.send(x)
 
 
 # ----------------------- ERROR HANDLING -----------------------------

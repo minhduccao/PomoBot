@@ -40,10 +40,8 @@ class Timer:
 
     def tick(self, tick_duration=1):
         self.time_left -= tick_duration
-        print('Time left: ', self.time_left)
         if self.time_left <= 0:
             self.status = TimerStatus.STOPPED
-            print('Timer stopped')
 
     def get_status(self):
         return self.status

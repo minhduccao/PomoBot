@@ -2,3 +2,4 @@ venv
 .idea
 .env
 error.log
+__pycache__/

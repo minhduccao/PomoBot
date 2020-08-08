@@ -11,9 +11,12 @@ from timer import TimerStatus
 
 DEBUG = True                                    # For debug messages
 SETTING_OPTIONS = ['work_time', 'short_break_time', 'long_break_time', 'sessions', 'use_long_breaks']
+COMMAND_PREFIX = '*'
+TIMER_COMMANDS = ['start', 'pause', 'stop', 'time', 'notify', 'set', 'setextra', 'togglebreak']
+GENERAL_COMMANDS = ['reset', 'help']
+
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')              # Grabs Discord bot token from .env file
-COMMAND_PREFIX = '*'
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, help_command=None)
 timer = Timer()
 pingList = []
@@ -88,15 +91,6 @@ async def start_timer(ctx):
         await ctx.send(embed=em)
 
 
-@bot.command(name='set', help='Customizes the work/break amounts for the timer')
-async def set_timer_amt(ctx, work_time: int, break_time: int):
-    # TODO: Store user-specified times
-    # TODO: Change input params to work with short and long break inputs
-    if DEBUG:
-        await ctx.send(f'Work: {work_time} Break: {break_time}')
-        print(f'Command: *set: Work Time: {work_time} Break Time: {break_time}')
-
-
 @bot.command(name='pause', help='Pauses the timer')
 async def pause_timer(ctx):
     if not timer.pause():
@@ -124,7 +118,7 @@ async def stop_timer(ctx):
     await ctx.send(embed=em)
 
 
-@bot.command(name='time', help='Displays the current timer status')
+@bot.command(name='time', help='Displays the current timer status', aliases=['timer', 'status'])
 async def current_time(ctx):
     status = timer.get_status()
     if status == TimerStatus.STOPPED:
@@ -136,7 +130,7 @@ async def current_time(ctx):
                            description=getFrmtTime(timer),
                            color=MsgColors.AQUA.value)
     else:
-        em = discord.Embed(title=':pause_button: Time Paused',
+        em = discord.Embed(title=':pause_button: Timer Paused',
                            description=getFrmtTime(timer),
                            color=MsgColors.YELLOW.value)
     await ctx.send(embed=em)
@@ -148,6 +142,52 @@ async def notify_user(ctx):
                        description='Timer will ping ' + ctx.message.author.name + ' when the timer stops.',
                        color=MsgColors.AQUA.value)
     pingList.append(ctx.message.author.mention)
+    await ctx.send(embed=em)
+
+
+@bot.command(name='set', help='Sets duration for work and short breaks')
+async def set_options_simple(ctx, work_time: int, short_break_time: int):
+    config.set('CURRENT_SETTINGS', 'work_time', str(work_time))
+    config.set('CURRENT_SETTINGS', 'short_break_time', str(short_break_time))
+    with open('settings.ini', 'w') as configFile:
+        config.write(configFile)
+
+    em = discord.Embed(title=':gear: Adjusting Timer Settings',
+                       description=f'Setting work time to {work_time} minutes and break time to {short_break_time} minutes',
+                       color=MsgColors.AQUA.value)
+    await ctx.send(embed=em)
+
+    if DEBUG:
+        print(f'Command: *set: Work Time: {work_time} Break Time: {short_break_time}')
+
+
+@bot.command(name='setextra', help='Sets duration for long breaks and number of work sessions')
+async def set_options_extra(ctx, long_break_time: int, sessions: int):
+    config.set('CURRENT_SETTINGS', 'long_break_time', str(long_break_time))
+    config.set('CURRENT_SETTINGS', 'sessions', str(sessions))
+    with open('settings.ini', 'w') as configFile:
+        config.write(configFile)
+
+    em = discord.Embed(title=':gear: Adjusting Timer Settings',
+                       description=f'Setting long break time to {long_break_time} minutes and number of work sessions to {sessions}.',
+                       color=MsgColors.AQUA.value)
+    await ctx.send(embed=em)
+
+
+@bot.command(name='togglebreak', help='Toggles the option to enable/disable long breaks')
+async def toggle_long_break(ctx):
+    break_option = config['CURRENT_SETTINGS']['use_long_breaks'] == 'True'
+    config.set('CURRENT_SETTINGS', 'use_long_breaks', str(not break_option))
+    with open('settings.ini', 'w') as configFile:
+        config.write(configFile)
+
+    if break_option:
+        desc = 'Disabled long breaks.'
+    else:
+        desc = 'Enabled long breaks.'
+    em = discord.Embed(title=':gear: Adjusting Timer Settings',
+                       description=desc,
+                       color=MsgColors.AQUA.value)
     await ctx.send(embed=em)
 
 
@@ -169,17 +209,15 @@ async def help(ctx):
     help_commands = dict()                                              # Dict of help commands + their description
     for command in bot.commands:
         help_commands[command.name] = command.help
-    timer_commands = ['start', 'pause', 'stop', 'time', 'notify', 'set']
-    general_commands = ['reset', 'help']
 
     desc = 'The prefix for this bot is `' + COMMAND_PREFIX + '`\n'      # Prints ordered list of timer commands
-    desc += f'\n**Timer Commands | {len(timer_commands)}**\n'
-    for command in timer_commands:
-        desc += '`{:10s}` {}\n'.format(command, help_commands[command])
+    desc += f'\n**Timer Commands | {len(TIMER_COMMANDS)}**\n'
+    for command in TIMER_COMMANDS:
+        desc += '`{:12s}` {}\n'.format(command, help_commands[command])
 
-    desc += f'\n**General Commands | {len(general_commands)}**\n'       # Prints ordered list of general commands
-    for command in general_commands:
-        desc += '`{:10s}` {}\n'.format(command, help_commands[command])
+    desc += f'\n**General Commands | {len(GENERAL_COMMANDS)}**\n'       # Prints ordered list of general commands
+    for command in GENERAL_COMMANDS:
+        desc += '`{:12s}` {}\n'.format(command, help_commands[command])
 
     em = discord.Embed(title='Bot Commands',
                        description=desc,
@@ -190,14 +228,13 @@ async def help(ctx):
 # TODO: Remove command later
 @bot.command(name='t', help='Temporary for testing commands')
 async def t(ctx):
-    x = ctx.message.author.mention
-    await ctx.send(x)
+    await ctx.send(config['CURRENT_SETTINGS']['use_long_breaks'])
 
 
 # ----------------------- ERROR HANDLING -----------------------------
 # TODO: Fill in remaining method errors
-@set_timer_amt.error
-async def set_timer_amt_error(ctx, error):
+@set_options_simple.error
+async def set_options_simple_error(ctx, error):
     if DEBUG:
         print(f'*set error: {ctx.message.content} \n{ctx.message}\n')
     if isinstance(error, commands.errors.MissingRequiredArgument):

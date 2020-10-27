@@ -10,7 +10,7 @@ from timer import Timer
 from timer import TimerStatus
 
 DEBUG = True                                    # For debug messages
-SETTING_OPTIONS = ['work_time', 'short_break_time', 'long_break_time', 'sessions', 'use_long_breaks']
+SETTING_OPTIONS = ['work_time', 'short_break_time', 'long_break_time', 'sessions', 'use_long_breaks', 'keep_pings']
 COMMAND_PREFIX = '*'
 TIMER_COMMANDS = ['start', 'pause', 'stop', 'time', 'notify', 'set', 'setextra', 'togglebreak']
 GENERAL_COMMANDS = ['reset', 'help']
@@ -19,16 +19,16 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')              # Grabs Discord bot token from .env file
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, help_command=None)
 timer = Timer()
-pingList = []
 
 
 # ------------ Overall Work List ---------
-# TODO: Complete remaining commands
 # TODO: Complete all error handling
 # TODO: Store user-set times
 # TODO: Add break functionality + settings to adjust long breaks, sessions
 # TODO: Add docstrings
 # TODO: Create empty .env file before finalizing
+# TODO: Add settings.ini file before finalizing
+# TODO: Add empty pings.txt file before finalizing
 # TODO: Remove all DEBUG statements and check imports before finalizing
 
 # TODO: Update Enum with more colors
@@ -44,7 +44,7 @@ async def on_ready():
     print(f'{bot.user} has connected to Discord.')
 
 
-@bot.command(name='start', help='Starts a Pomodoro timer')
+@bot.command(name='start', help='Starts/resumes a Pomodoro timer', aliases=['resume'])
 async def start_timer(ctx):
     if timer.get_status() == TimerStatus.STOPPED:
         work_mins = config['CURRENT_SETTINGS']['work_time']                 # Grabs work duration from user settings
@@ -64,9 +64,13 @@ async def start_timer(ctx):
             await asyncio.sleep(1)                                          # Sleep for 1 sec before timer counts down
             timer.tick()
         if timer.get_status() == TimerStatus.STOPPED:                       # Ping users when timer stops
-            for user in pingList:
-                await ctx.send(f'Pinging {user}')
-            pingList.clear()
+            with open('pings.txt', 'r') as pingFile:
+                pingList = [user for user in pingFile]
+
+                for user in pingList:
+                    await ctx.send(f'Pinging {user}')
+            if not config['CURRENT_SETTINGS']['keep_pings']:                # Erase ping list if not keeping users
+                open('pings.txt', 'w').close()
 
     elif timer.get_status() == TimerStatus.PAUSED:                          # Resuming timer from paused state
         em = discord.Embed(title=':timer: Resuming Timer',
@@ -81,9 +85,11 @@ async def start_timer(ctx):
             await asyncio.sleep(1)
             timer.tick()
         if timer.get_status() == TimerStatus.STOPPED:                       # Ping users when timer stops
-            for user in pingList:
-                await ctx.send(f'Pinging {user}')
-            pingList.clear()
+            with open('pings.txt', 'r') as pingFile:
+                for user in pingFile:
+                    await ctx.send(f'Pinging {user}')
+            if not config['CURRENT_SETTINGS']['keep_pings']:                # Erase ping list if not keeping users
+                open('pings.txt', 'w').close()
     else:
         em = discord.Embed(title=':warning: Warning',
                            description='Timer is already running.',
@@ -114,7 +120,6 @@ async def stop_timer(ctx):
         em = discord.Embed(title=':stop_button: Stopped Timer',
                            description='Timer has been stopped.',
                            color=MsgColors.RED.value)
-        pingList.clear()                                                    # Clear ping list when timer stops
     await ctx.send(embed=em)
 
 
@@ -141,7 +146,12 @@ async def notify_user(ctx):
     em = discord.Embed(title=':ballot_box_with_check: Notification Confirmed',
                        description='Timer will ping ' + ctx.message.author.name + ' when the timer stops.',
                        color=MsgColors.AQUA.value)
-    pingList.append(ctx.message.author.mention)
+    newUser = ctx.message.author.mention
+    with open('pings.txt', 'r+') as pingFile:
+        pingList = [user for user in pingFile]                              # Populates list of users to be pinged
+        print(pingList)
+        if newUser not in pingList:                                            # Adds user if not already added
+            pingFile.write(ctx.message.author.mention + '\n')
     await ctx.send(embed=em)
 
 
@@ -205,7 +215,6 @@ async def reset_settings(ctx):
 
 @bot.command(name='help', help='Describes all bot commands.')
 async def help(ctx):
-    # TODO: Fill in help command
     help_commands = dict()                                              # Dict of help commands + their description
     for command in bot.commands:
         help_commands[command.name] = command.help
@@ -228,8 +237,9 @@ async def help(ctx):
 # TODO: Remove command later
 @bot.command(name='t', help='Temporary for testing commands')
 async def t(ctx):
-    await ctx.send(config['CURRENT_SETTINGS']['use_long_breaks'])
-
+    with open('pings.txt', 'r') as pingFile:
+        for line in pingFile:
+            await ctx.send(line)
 
 # ----------------------- ERROR HANDLING -----------------------------
 # TODO: Fill in remaining method errors
